@@ -1,33 +1,46 @@
 # Handoff: clinic_sync
 
 > **Current Date:** 2026-10-27  
-> **Active Phase:** Phase 0: Discovery & Scope  
-> **Status:** Memory files established; Phase 0 Discovery questions presented to user.  
+> **Active Phase:** Phase 2 Completed -> Transitioning to Phase 3: Sync Core  
+> **Status:** Versioned FHIR data layer fully operational on edge and central; `mvn verify` passes with 0 errors.  
 
 ---
 
 ## 1. Current State
-- The repository structure and core documentation memory files in `docs/ai/` have been initialized.
-- We are in **Phase 0 (Discovery & Scope)**.
-- Code implementation has not started yet (intentional per master prompt gate rules).
-- Phase 0 discovery questions and Phase 1 design questions have been formulated.
+- Operating Mode: **BUILD (Autonomous)**.
+- **Phase 0:** Completed and committed.
+- **Phase 1:** Completed and committed.
+- **Phase 2:** Completed and verified:
+  - RFC 9562 UUIDv7 generator in `common`.
+  - HAPI FHIR R4 parser/validator with strict error handling.
+  - Complete versioned CRUD on both `edge-node` and `central-server` for `Patient`, `Encounter`, `Observation`, `AllergyIntolerance`.
+  - Optimistic concurrency control via `If-Match`.
+  - Full history bundle generation via `/{resourceType}/{id}/_history`.
+  - Soft deletion / tombstones (returning HTTP 410 on read).
+  - Synthetic data generator in `sim`.
+  - All tests passing in `common`, `edge-node`, `central-server`, `sim`.
 
 ---
 
 ## 2. In-Progress Work
-- Gathering user feedback on the 7 Phase 0 discovery questions (experience level, hours/day, target failure scenarios, preferences).
-- Preparing to update `PROJECT_BRIEF.md` and `SYNC_INVARIANTS.md` once user responds.
+- Committing Phase 2 deliverables to git.
+- Transitioning to **Phase 3: Sync Core**:
+  - Hybrid Logical Clock (HLC) in `common` (physical ms + counter + node id).
+  - jqwik property-based tests for HLC monotonicity and future drift bounds.
+  - Canonical JSON serializer and Ed25519 payload signing helpers in `common`.
+  - Central push endpoint with contiguous ACK calculation and future drift rejection.
+  - Central pull endpoint with `global_seq` cursor, paging, and clinic scope filtering.
+  - Edge sync client with push-then-pull, exponential backoff, and jitter.
+  - Automated tests for Invariants 1–4 (No data loss, Convergence, Idempotency, Resumability).
 
 ---
 
 ## 3. Next 3 Steps
-1. Receive user answers to the 7 Discovery Questions.
-2. Update `PROJECT_BRIEF.md` and `SYNC_INVARIANTS.md` with finalized details, then ask for formal Phase 0 approval.
-3. Once approved, transition to Phase 1 (Architecture & Design) and draft the first set of ADR proposals in `DECISIONS.md`.
+1. Commit Phase 2 changes to git.
+2. Implement HLC and Ed25519 canonical JSON signing in `common` with property tests.
+3. Implement Central pull endpoint and complete the bidirectional Push-then-Pull sync engine.
 
 ---
 
 ## 4. Open Questions & Blockers
-- User's background with Java, Spring Boot, distributed systems, and FHIR.
-- Edge database preference: SQLite (via SQLCipher) vs. H2 (encrypted).
-- Expected daily time commitment (1, 2, or 3 hours/day).
+- None. Proceeding autonomously into Phase 3.
