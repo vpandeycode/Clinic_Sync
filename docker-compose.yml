@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: clinic_sync_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-clinic_central}
+      POSTGRES_USER: ${POSTGRES_USER:-clinic_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clinic_secret_pass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clinic_admin} -d ${POSTGRES_DB:-clinic_central}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  central-server:
+    build:
+      context: .
+      dockerfile: central-server/Dockerfile
+    container_name: clinic_sync_central
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-clinic_central}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-clinic_admin}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-clinic_secret_pass}
+      SERVER_PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  edge-node-a:
+    build:
+      context: .
+      dockerfile: edge-node/Dockerfile
+    container_name: clinic_sync_edge_a
+    environment:
+      CLINIC_NODE_ID: clinic-alpha
+      CLINIC_SCOPE: clinic-alpha
+      CENTRAL_SERVER_URL: http://central-server:8080
+      SERVER_PORT: 8081
+      CLINIC_EDGE_DB_KEY: ${EDGE_A_DB_PASSWORD:-edge_secret_alpha_key}
+    ports:
+      - "8081:8081"
+    depends_on:
+      - central-server
+
+  edge-node-b:
+    build:
+      context: .
+      dockerfile: edge-node/Dockerfile
+    container_name: clinic_sync_edge_b
+    environment:
+      CLINIC_NODE_ID: clinic-beta
+      CLINIC_SCOPE: clinic-beta
+      CENTRAL_SERVER_URL: http://central-server:8080
+      SERVER_PORT: 8082
+      CLINIC_EDGE_DB_KEY: ${EDGE_B_DB_PASSWORD:-edge_secret_beta_key}
+    ports:
+      - "8082:8082"
+    depends_on:
+      - central-server
+
+volumes:
+  pgdata:

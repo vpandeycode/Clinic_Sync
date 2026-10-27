@@ -1,0 +1,4 @@
+/home/hamlet/code/clinic_snyc/central-server/src/main/java/org/clinicsync/central/CentralServerApplication.java
+/home/hamlet/code/clinic_snyc/central-server/src/main/java/org/clinicsync/central/controller/CentralPatientController.java
+/home/hamlet/code/clinic_snyc/central-server/src/main/java/org/clinicsync/central/controller/CentralSyncController.java
+/home/hamlet/code/clinic_snyc/central-server/src/main/java/org/clinicsync/central/service/CentralSyncService.java

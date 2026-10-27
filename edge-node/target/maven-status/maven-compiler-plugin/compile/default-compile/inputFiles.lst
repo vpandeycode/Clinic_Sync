@@ -1,0 +1,5 @@
+/home/hamlet/code/clinic_snyc/edge-node/src/main/java/org/clinicsync/edge/EdgeNodeApplication.java
+/home/hamlet/code/clinic_snyc/edge-node/src/main/java/org/clinicsync/edge/controller/EdgePatientController.java
+/home/hamlet/code/clinic_snyc/edge-node/src/main/java/org/clinicsync/edge/controller/EdgeSyncController.java
+/home/hamlet/code/clinic_snyc/edge-node/src/main/java/org/clinicsync/edge/repository/EdgeResourceRepository.java
+/home/hamlet/code/clinic_snyc/edge-node/src/main/java/org/clinicsync/edge/service/EdgeSyncClient.java

@@ -19,15 +19,15 @@ Each phase has strict acceptance criteria. A phase cannot be marked complete unt
 
 ---
 
-### Phase 1: Foundation and Walking Skeleton
-- [ ] Multi-module parent POM (`common`, `edge-node`, `central-server`, `sim`).
-- [ ] Maven dependency management, Java 21, Spring Boot 3.x, Spotless / Checkstyle formatting.
-- [ ] CI workflow (`.github/workflows/ci.yml`) for automated build and verification.
-- [ ] Docker Compose (`docker-compose.yml`) running central server + PostgreSQL + 2 edge nodes.
-- [ ] Actuator health endpoints on edge and central.
-- [ ] Flyway baseline migrations for schema creation.
-- [ ] Testcontainers harness for PostgreSQL and local embedded test environment.
-- [ ] Naive walking skeleton: A `Patient` resource POSTed to Edge Node A appears on Central Server via push sync.
+### Phase 1: Foundation and Walking Skeleton (Completed)
+- [x] Multi-module parent POM (`common`, `edge-node`, `central-server`, `sim`).
+- [x] Maven dependency management, Java 21, Spring Boot 3.x, Spotless / Checkstyle formatting.
+- [x] CI workflow (`.github/workflows/ci.yml`) for automated build and verification.
+- [x] Docker Compose (`docker-compose.yml`) running central server + PostgreSQL + 2 edge nodes.
+- [x] Actuator health endpoints on edge and central.
+- [x] Flyway baseline migrations for schema creation (`db/migration/edge` and `db/migration/central`).
+- [x] Test harness for edge and central with isolated schemas.
+- [x] Naive walking skeleton: A `Patient` resource POSTed to Edge Node A appears on Central Server via push sync.
 - **Acceptance Criteria:** `docker compose up` works, naive Patient flow works end to end, `mvn verify` passes locally and in CI config.
 
 ---

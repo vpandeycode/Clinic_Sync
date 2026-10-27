@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] - 2026-10-27
 
 ### Added
-- Completed Phase 0 discovery inputs:
-  - Developer experience profile (Java 21, Spring Boot DI; FHIR & Distributed Systems study track).
-  - Scope defined: Outpatient Triage & Vitals (`Patient`, `Encounter`, `Observation`, `AllergyIntolerance`).
-  - Target open-source health community aligned: **OpenMRS**.
-  - Edge database selected: **H2 with AES encryption at rest** (`CIPHER=AES`).
-  - Edge execution topology: Dual-mode Spring Boot (standalone JAR + Docker Compose simulation).
-  - Prioritized failure scenarios: Concurrent conflicting edits, mid-sync drops, extended offline isolation.
-- Refined [PROJECT_BRIEF.md](file:///home/hamlet/code/clinic_snyc/docs/ai/PROJECT_BRIEF.md) and [SYNC_INVARIANTS.md](file:///home/hamlet/code/clinic_snyc/docs/ai/SYNC_INVARIANTS.md).
-- Initialized all project memory files in `docs/ai/`.
+- **Phase 1: Foundation & Walking Skeleton**
+  - Scaffolded 4-module Maven architecture: `common`, `edge-node`, `central-server`, `sim`.
+  - Configured Java 21, Spring Boot 3.3.5, and Flyway database migrations with module-isolated schemas.
+  - Implemented `docker-compose.yml` for multi-node local orchestration (PostgreSQL + Central + 2 Edge Nodes).
+  - Implemented `.github/workflows/ci.yml` pipeline.
+  - Implemented Edge Node storage repository and sync client with H2 file encryption support.
+  - Implemented Central Server idempotent push endpoint and FHIR query API.
+  - Built `WalkingSkeletonIntegrationTest` proving end-to-end flow: Edge creates Patient -> pushes batch to Central -> Central records and serves Patient -> Idempotent re-push verified.
+  - Added [docs/learning/phase-1.md](file:///home/hamlet/code/clinic_snyc/docs/learning/phase-1.md).
+- **Phase 0: Docs and Decisions**
+  - Initialized memory files in `docs/ai/` and ADRs 0001 through 0015.
+  - Added [docs/learning/phase-0.md](file:///home/hamlet/code/clinic_snyc/docs/learning/phase-0.md).

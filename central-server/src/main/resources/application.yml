@@ -1,0 +1,20 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: central-server
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/clinic_central}
+    username: ${SPRING_DATASOURCE_USERNAME:clinic_admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:clinic_secret_pass}
+    driver-class-name: org.postgresql.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/central
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
