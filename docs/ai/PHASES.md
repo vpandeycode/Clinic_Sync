@@ -32,14 +32,14 @@ Each phase has strict acceptance criteria. A phase cannot be marked complete unt
 
 ---
 
-### Phase 2: FHIR Data Layer
-- [ ] Integrate HAPI FHIR (R4) as a parsing, serialization, and validation library (no HAPI JPA server).
-- [ ] Implement client-generated UUIDv7 generator for resource IDs.
-- [ ] Implement versioned resource store (`resource_version` and `resource_head`) using Spring JDBC (`JdbcClient`) for `Patient`, `Encounter`, `Observation`, and `AllergyIntolerance`.
-- [ ] Implement history endpoint (`GET /{resourceType}/{id}/_history`).
-- [ ] Implement soft-delete / tombstones (`is_tombstone = true`).
-- [ ] Implement optimistic concurrency control via HTTP `If-Match` on version IDs.
-- [ ] Build synthetic FHIR clinical data generator in `sim`.
+### Phase 2: FHIR Data Layer (Completed)
+- [x] Integrate HAPI FHIR (R4) as a parsing, serialization, and validation library (no HAPI JPA server).
+- [x] Implement client-generated UUIDv7 generator for resource IDs.
+- [x] Implement versioned resource store (`resource_version` and `resource_head`) using Spring JDBC (`JdbcClient`) for `Patient`, `Encounter`, `Observation`, and `AllergyIntolerance`.
+- [x] Implement history endpoint (`GET /fhir/{resourceType}/{id}/_history`).
+- [x] Implement soft-delete / tombstones (`is_tombstone = true`).
+- [x] Implement optimistic concurrency control via HTTP `If-Match` on version IDs.
+- [x] Build synthetic FHIR clinical data generator in `sim`.
 - **Acceptance Criteria:** Create, update, read, history, and tombstone-delete work on both edge and central; an update never overwrites an old version; tests cover invalid FHIR rejection and concurrent update handling.
 
 ---

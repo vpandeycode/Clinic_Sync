@@ -75,21 +75,11 @@ public class WalkingSkeletonIntegrationTest {
                 """.formatted(patientId);
 
         // 1. Edge creates patient locally
-        long originSeq = edgeRepository.saveLocalResource(
-                "Patient",
-                patientId,
-                "1",
-                patientJson,
-                null,
-                "clinic-alpha",
-                System.currentTimeMillis() + ":0:clinic-alpha",
-                "nurse-joy",
-                false
-        );
-        assertThat(originSeq).isEqualTo(1L);
+        var createdRecord = edgeRepository.createResource("Patient", patientJson, "clinic-alpha", "nurse-joy");
+        assertThat(createdRecord.originSeq()).isEqualTo(1L);
 
         // Verify edge stored the patient
-        String localContent = edgeRepository.getResourceHeadContent("Patient", patientId).orElseThrow();
+        String localContent = edgeRepository.readResource("Patient", patientId).contentJson();
         assertThat(localContent).contains("Fatima");
 
         // 2. Edge triggers push to Central Server
