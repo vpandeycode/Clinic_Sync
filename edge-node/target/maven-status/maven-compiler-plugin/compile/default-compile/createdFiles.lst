@@ -1,5 +1,0 @@
-org/clinicsync/edge/controller/EdgePatientController.class
-org/clinicsync/edge/controller/EdgeSyncController.class
-org/clinicsync/edge/service/EdgeSyncClient.class
-org/clinicsync/edge/EdgeNodeApplication.class
-org/clinicsync/edge/repository/EdgeResourceRepository.class
