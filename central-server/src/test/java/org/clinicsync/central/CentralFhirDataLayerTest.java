@@ -40,14 +40,14 @@ class CentralFhirDataLayerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(initialJson))
                 .andExpect(status().isCreated())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"1-central\""))
                 .andExpect(header().string(HttpHeaders.LOCATION, "/fhir/Patient/" + patientId))
                 .andExpect(jsonPath("$.name[0].family").value("Kowalski"));
 
         // 2. Read Patient
         mockMvc.perform(get("/fhir/Patient/" + patientId))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""));
+                .andExpect(header().string(HttpHeaders.ETAG, "\"1-central\""));
 
         // 3. Update Patient with valid If-Match
         String updatedJson = """
@@ -60,11 +60,11 @@ class CentralFhirDataLayerTest {
                 """.formatted(patientId);
 
         mockMvc.perform(put("/fhir/Patient/" + patientId)
-                        .header(HttpHeaders.IF_MATCH, "\"1\"")
+                        .header(HttpHeaders.IF_MATCH, "\"1-central\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updatedJson))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"2\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"2-central\""))
                 .andExpect(jsonPath("$.name[0].given[1]").value("Piotr"));
 
         // 4. Verify History & Update Never Overwrites Old Version
@@ -72,12 +72,12 @@ class CentralFhirDataLayerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.entry", hasSize(2)))
-                .andExpect(jsonPath("$.entry[0].response.etag").value("\"1\""))
-                .andExpect(jsonPath("$.entry[1].response.etag").value("\"2\""));
+                .andExpect(jsonPath("$.entry[0].response.etag").value("\"1-central\""))
+                .andExpect(jsonPath("$.entry[1].response.etag").value("\"2-central\""));
 
         // 5. Test Optimistic Concurrency: Stale If-Match fails with 412
         mockMvc.perform(put("/fhir/Patient/" + patientId)
-                        .header(HttpHeaders.IF_MATCH, "\"1\"")
+                        .header(HttpHeaders.IF_MATCH, "\"1-central\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updatedJson))
                 .andExpect(status().isPreconditionFailed())
@@ -92,9 +92,9 @@ class CentralFhirDataLayerTest {
 
         // 7. Soft Delete (Tombstone)
         mockMvc.perform(delete("/fhir/Patient/" + patientId)
-                        .header(HttpHeaders.IF_MATCH, "\"2\""))
+                        .header(HttpHeaders.IF_MATCH, "\"2-central\""))
                 .andExpect(status().isNoContent())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"3\""));
+                .andExpect(header().string(HttpHeaders.ETAG, "\"3-central\""));
 
         // 8. Subsequent GET returns 410 Gone
         mockMvc.perform(get("/fhir/Patient/" + patientId))

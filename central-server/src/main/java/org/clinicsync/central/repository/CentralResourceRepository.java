@@ -7,7 +7,10 @@ import org.clinicsync.common.exception.OptimisticLockException;
 import org.clinicsync.common.exception.ResourceGoneException;
 import org.clinicsync.common.exception.ResourceNotFoundException;
 import org.clinicsync.common.fhir.FhirUtil;
+import org.clinicsync.common.hlc.Hlc;
+import org.clinicsync.common.hlc.HybridLogicalClock;
 import org.clinicsync.common.model.ResourceVersionRecord;
+import org.clinicsync.common.sync.VersionGraph;
 import org.clinicsync.common.util.UuidV7Generator;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -15,19 +18,34 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
+/**
+ * Central copy of the append-only versioned FHIR store for resources written directly on central
+ * (as opposed to changes arriving through the sync push endpoint).
+ *
+ * <p>Local central writes are stamped with the central HLC, receive node-qualified version ids
+ * ({@code <ordinal>-central}) and are recorded in {@code applied_changes} under the {@code central}
+ * origin with a dense sequence from {@code central_origin_seq}, so they flow through the exact same
+ * {@code global_seq} timeline that edges pull.</p>
+ */
 @Repository
 public class CentralResourceRepository {
 
+    private static final String CENTRAL_NODE_ID = "central";
+
     private final JdbcClient jdbcClient;
+    private final HybridLogicalClock clock;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public record HeadInfo(String headVersionId, boolean hasConflict, boolean isTombstone) {}
+    public record HeadInfo(String headVersionIds, boolean hasConflict, boolean isTombstone) {}
 
-    public CentralResourceRepository(JdbcClient jdbcClient) {
+    public CentralResourceRepository(JdbcClient jdbcClient, HybridLogicalClock clock) {
         this.jdbcClient = jdbcClient;
+        this.clock = clock;
     }
 
     @Transactional
@@ -53,18 +71,19 @@ public class CentralResourceRepository {
             throw new RuntimeException("Error processing JSON id", e);
         }
 
-        String versionId = "1";
-        String originNodeId = "central";
-        long originSeq = 0L; // Local direct central writes
-        String hlc = Instant.now().toEpochMilli() + ":0:central";
+        String versionId = VersionGraph.nextOrdinal(null) + "-" + CENTRAL_NODE_ID;
+        String hlc = clock.now().toString();
         Timestamp now = Timestamp.from(Instant.now());
+        long originSeq = nextCentralOriginSeq();
 
-        insertResourceVersion(resourceType, resourceId, versionId, finalJson, null, originNodeId, originSeq, hlc, author, false, now);
+        insertResourceVersion(resourceType, resourceId, versionId, finalJson, null,
+                CENTRAL_NODE_ID, originSeq, hlc, author, false, now);
         upsertResourceHead(resourceType, resourceId, versionId, false, now);
+        recordCentralChange(resourceType, resourceId, versionId, originSeq);
 
         return new ResourceVersionRecord(
                 resourceType, resourceId, versionId, finalJson, null,
-                originNodeId, originSeq, hlc, author, false, now.toInstant()
+                CENTRAL_NODE_ID, originSeq, hlc, author, false, now.toInstant()
         );
     }
 
@@ -83,67 +102,54 @@ public class CentralResourceRepository {
 
         if (ifMatchVersion != null) {
             String expected = cleanEtag(ifMatchVersion);
-            if (!head.headVersionId().equals(expected)) {
+            if (!VersionGraph.ids(head.headVersionIds()).contains(expected)) {
                 throw new OptimisticLockException(
-                        "Precondition Failed: Current version is " + head.headVersionId() + ", but If-Match was " + ifMatchVersion
+                        "Precondition Failed: Current version is " + head.headVersionIds() + ", but If-Match was " + ifMatchVersion
                 );
             }
         }
 
-        int currentVerNum = parseVersionNumber(head.headVersionId());
-        String nextVersion = String.valueOf(currentVerNum + 1);
-        String originNodeId = "central";
-        long originSeq = 0L;
-        String hlc = Instant.now().toEpochMilli() + ":0:central";
+        String versionId = VersionGraph.nextOrdinal(head.headVersionIds()) + "-" + CENTRAL_NODE_ID;
+        String hlc = clock.now().toString();
         Timestamp now = Timestamp.from(Instant.now());
-
         String finalJson = ensureIdInJson(jsonContent, resourceId);
+        long originSeq = nextCentralOriginSeq();
 
-        insertResourceVersion(resourceType, resourceId, nextVersion, finalJson, head.headVersionId(), originNodeId, originSeq, hlc, author, false, now);
-        upsertResourceHead(resourceType, resourceId, nextVersion, false, now);
+        insertResourceVersion(resourceType, resourceId, versionId, finalJson, head.headVersionIds(),
+                CENTRAL_NODE_ID, originSeq, hlc, author, false, now);
+
+        VersionGraph.HeadUpdate update = VersionGraph.apply(head.headVersionIds(), head.headVersionIds(), versionId);
+        upsertResourceHead(resourceType, resourceId, update.headVersionIds(), update.hasConflict(), now);
+        recordCentralChange(resourceType, resourceId, versionId, originSeq);
 
         return new ResourceVersionRecord(
-                resourceType, resourceId, nextVersion, finalJson, head.headVersionId(),
-                originNodeId, originSeq, hlc, author, false, now.toInstant()
+                resourceType, resourceId, versionId, finalJson, head.headVersionIds(),
+                CENTRAL_NODE_ID, originSeq, hlc, author, false, now.toInstant()
         );
     }
 
     public ResourceVersionRecord readResource(String resourceType, String resourceId) {
-        Optional<ResourceVersionRecord> recordOpt = jdbcClient.sql("""
-                SELECT rv.resource_type, rv.resource_id, rv.version_id, rv.content_json,
-                       rv.parent_version_ids, rv.origin_node_id, rv.origin_seq,
-                       rv.hlc, rv.author, rv.is_tombstone, rv.created_at
-                FROM resource_head rh
-                JOIN resource_version rv ON rh.resource_type = rv.resource_type
-                                        AND rh.resource_id = rv.resource_id
-                                        AND rh.head_version_ids = rv.version_id
-                WHERE rh.resource_type = :type AND rh.resource_id = :id
-                """)
-                .param("type", resourceType)
-                .param("id", resourceId)
-                .query((rs, rowNum) -> new ResourceVersionRecord(
-                        rs.getString("resource_type"),
-                        rs.getString("resource_id"),
-                        rs.getString("version_id"),
-                        rs.getString("content_json"),
-                        rs.getString("parent_version_ids"),
-                        rs.getString("origin_node_id"),
-                        rs.getLong("origin_seq"),
-                        rs.getString("hlc"),
-                        rs.getString("author"),
-                        rs.getBoolean("is_tombstone"),
-                        rs.getTimestamp("created_at").toInstant()
-                ))
-                .optional();
+        HeadInfo head = getHeadInfo(resourceType, resourceId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Resource " + resourceType + "/" + resourceId + " not found"));
 
-        ResourceVersionRecord record = recordOpt.orElseThrow(() ->
-                new ResourceNotFoundException("Resource " + resourceType + "/" + resourceId + " not found"));
+        Set<String> heads = VersionGraph.ids(head.headVersionIds());
+        List<ResourceVersionRecord> headVersions = heads.stream()
+                .map(versionId -> fetchVersion(resourceType, resourceId, versionId))
+                .flatMap(Optional::stream)
+                .toList();
 
-        if (record.isTombstone()) {
-            throw new ResourceGoneException("Resource " + resourceType + "/" + resourceId + " has been deleted");
+        if (headVersions.isEmpty()) {
+            throw new ResourceNotFoundException("Resource " + resourceType + "/" + resourceId + " not found");
         }
 
-        return record;
+        // Concurrent heads still read as exactly one resource: newest by HLC wins for display only.
+        ResourceVersionRecord displayHead = headVersions.stream().max(hlcOrder()).orElseThrow();
+
+        if (displayHead.isTombstone()) {
+            throw new ResourceGoneException("Resource " + resourceType + "/" + resourceId + " has been deleted");
+        }
+        return displayHead;
     }
 
     public List<ResourceVersionRecord> getHistory(String resourceType, String resourceId) {
@@ -157,19 +163,7 @@ public class CentralResourceRepository {
                 """)
                 .param("type", resourceType)
                 .param("id", resourceId)
-                .query((rs, rowNum) -> new ResourceVersionRecord(
-                        rs.getString("resource_type"),
-                        rs.getString("resource_id"),
-                        rs.getString("version_id"),
-                        rs.getString("content_json"),
-                        rs.getString("parent_version_ids"),
-                        rs.getString("origin_node_id"),
-                        rs.getLong("origin_seq"),
-                        rs.getString("hlc"),
-                        rs.getString("author"),
-                        rs.getBoolean("is_tombstone"),
-                        rs.getTimestamp("created_at").toInstant()
-                ))
+                .query(CentralResourceRepository::mapVersionRecord)
                 .list();
 
         if (list.isEmpty()) {
@@ -195,37 +189,105 @@ public class CentralResourceRepository {
 
         if (ifMatchVersion != null) {
             String expected = cleanEtag(ifMatchVersion);
-            if (!head.headVersionId().equals(expected)) {
+            if (!VersionGraph.ids(head.headVersionIds()).contains(expected)) {
                 throw new OptimisticLockException(
-                        "Precondition Failed: Current version is " + head.headVersionId() + ", but If-Match was " + ifMatchVersion
+                        "Precondition Failed: Current version is " + head.headVersionIds() + ", but If-Match was " + ifMatchVersion
                 );
             }
         }
 
-        int currentVerNum = parseVersionNumber(head.headVersionId());
-        String nextVersion = String.valueOf(currentVerNum + 1);
-        String originNodeId = "central";
-        long originSeq = 0L;
-        String hlc = Instant.now().toEpochMilli() + ":0:central";
+        String versionId = VersionGraph.nextOrdinal(head.headVersionIds()) + "-" + CENTRAL_NODE_ID;
+        String hlc = clock.now().toString();
         Timestamp now = Timestamp.from(Instant.now());
-        String tombstoneJson = "{\"resourceType\":\"" + resourceType + "\",\"id\":\"" + resourceId + "\",\"meta\":{\"isTombstone\":true}}";
+        String tombstoneJson = "{\"resourceType\":\"" + resourceType + "\",\"id\":\"" + resourceId
+                + "\",\"meta\":{\"isTombstone\":true}}";
+        long originSeq = nextCentralOriginSeq();
 
-        insertResourceVersion(resourceType, resourceId, nextVersion, tombstoneJson, head.headVersionId(), originNodeId, originSeq, hlc, author, true, now);
-        upsertResourceHead(resourceType, resourceId, nextVersion, false, now);
+        insertResourceVersion(resourceType, resourceId, versionId, tombstoneJson, head.headVersionIds(),
+                CENTRAL_NODE_ID, originSeq, hlc, author, true, now);
+
+        VersionGraph.HeadUpdate update = VersionGraph.apply(head.headVersionIds(), head.headVersionIds(), versionId);
+        upsertResourceHead(resourceType, resourceId, update.headVersionIds(), update.hasConflict(), now);
+        recordCentralChange(resourceType, resourceId, versionId, originSeq);
 
         return new ResourceVersionRecord(
-                resourceType, resourceId, nextVersion, tombstoneJson, head.headVersionId(),
-                originNodeId, originSeq, hlc, author, true, now.toInstant()
+                resourceType, resourceId, versionId, tombstoneJson, head.headVersionIds(),
+                CENTRAL_NODE_ID, originSeq, hlc, author, true, now.toInstant()
         );
+    }
+
+    // ------------------------------------------------------------------
+    // Internals
+    // ------------------------------------------------------------------
+
+    private long nextCentralOriginSeq() {
+        return jdbcClient.sql("SELECT nextval('central_origin_seq')")
+                .query(Long.class)
+                .single();
+    }
+
+    /** Publishes a central-local write into the applied_changes timeline that edges pull. */
+    private void recordCentralChange(String type, String id, String versionId, long originSeq) {
+        jdbcClient.sql("""
+                INSERT INTO applied_changes (origin_node_id, origin_seq, resource_type, resource_id, version_id, applied_at)
+                VALUES (:nodeId, :seq, :type, :id, :versionId, :appliedAt)
+                """)
+                .param("nodeId", CENTRAL_NODE_ID)
+                .param("seq", originSeq)
+                .param("type", type)
+                .param("id", id)
+                .param("versionId", versionId)
+                .param("appliedAt", Timestamp.from(Instant.now()))
+                .update();
+    }
+
+    private Optional<ResourceVersionRecord> fetchVersion(String resourceType, String resourceId, String versionId) {
+        return jdbcClient.sql("""
+                SELECT resource_type, resource_id, version_id, content_json,
+                       parent_version_ids, origin_node_id, origin_seq,
+                       hlc, author, is_tombstone, created_at
+                FROM resource_version
+                WHERE resource_type = :type AND resource_id = :id AND version_id = :versionId
+                """)
+                .param("type", resourceType)
+                .param("id", resourceId)
+                .param("versionId", versionId)
+                .query(CentralResourceRepository::mapVersionRecord)
+                .optional();
+    }
+
+    private static ResourceVersionRecord mapVersionRecord(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return new ResourceVersionRecord(
+                rs.getString("resource_type"),
+                rs.getString("resource_id"),
+                rs.getString("version_id"),
+                rs.getString("content_json"),
+                rs.getString("parent_version_ids"),
+                rs.getString("origin_node_id"),
+                rs.getLong("origin_seq"),
+                rs.getString("hlc"),
+                rs.getString("author"),
+                rs.getBoolean("is_tombstone"),
+                rs.getTimestamp("created_at").toInstant()
+        );
+    }
+
+    private static Comparator<ResourceVersionRecord> hlcOrder() {
+        return Comparator
+                .comparing((ResourceVersionRecord record) -> {
+                    try {
+                        return Hlc.parse(record.hlc());
+                    } catch (RuntimeException e) {
+                        return Hlc.initial("");
+                    }
+                })
+                .thenComparing(ResourceVersionRecord::versionId);
     }
 
     private Optional<HeadInfo> getHeadInfo(String resourceType, String resourceId) {
         return jdbcClient.sql("""
-                SELECT rh.head_version_ids, rh.has_conflict, rv.is_tombstone
+                SELECT rh.head_version_ids, rh.has_conflict
                 FROM resource_head rh
-                LEFT JOIN resource_version rv ON rh.resource_type = rv.resource_type
-                                             AND rh.resource_id = rv.resource_id
-                                             AND rh.head_version_ids = rv.version_id
                 WHERE rh.resource_type = :type AND rh.resource_id = :id
                 """)
                 .param("type", resourceType)
@@ -233,9 +295,27 @@ public class CentralResourceRepository {
                 .query((rs, rowNum) -> new HeadInfo(
                         rs.getString("head_version_ids"),
                         rs.getBoolean("has_conflict"),
-                        rs.getBoolean("is_tombstone")
+                        false
                 ))
-                .optional();
+                .optional()
+                .map(head -> withTombstoneState(resourceType, resourceId, head));
+    }
+
+    private HeadInfo withTombstoneState(String resourceType, String resourceId, HeadInfo head) {
+        boolean anyTombstone = false;
+        for (String versionId : VersionGraph.ids(head.headVersionIds())) {
+            Optional<Boolean> tombstone = jdbcClient.sql("""
+                    SELECT is_tombstone FROM resource_version
+                    WHERE resource_type = :type AND resource_id = :id AND version_id = :versionId
+                    """)
+                    .param("type", resourceType)
+                    .param("id", resourceId)
+                    .param("versionId", versionId)
+                    .query(Boolean.class)
+                    .optional();
+            anyTombstone |= Boolean.TRUE.equals(tombstone.orElse(false));
+        }
+        return new HeadInfo(head.headVersionIds(), head.hasConflict(), anyTombstone);
     }
 
     private void insertResourceVersion(
@@ -300,14 +380,6 @@ public class CentralResourceRepository {
             s = s.substring(1, s.length() - 1);
         }
         return s;
-    }
-
-    private static int parseVersionNumber(String v) {
-        try {
-            return Integer.parseInt(v);
-        } catch (NumberFormatException e) {
-            return 1;
-        }
     }
 
     private String ensureIdInJson(String json, String id) {

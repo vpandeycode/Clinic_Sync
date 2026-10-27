@@ -1,5 +1,6 @@
 package org.clinicsync.edge;
 
+import org.clinicsync.edge.transport.GzipClientInterceptor;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
@@ -14,6 +15,8 @@ public class EdgeNodeApplication {
 
     @Bean
     public RestClient restClient() {
-        return RestClient.builder().build();
+        return RestClient.builder()
+                .requestInterceptor(new GzipClientInterceptor())
+                .build();
     }
 }

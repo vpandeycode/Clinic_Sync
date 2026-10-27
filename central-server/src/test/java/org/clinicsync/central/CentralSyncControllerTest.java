@@ -33,6 +33,14 @@ class CentralSyncControllerTest {
     @Test
     @DisplayName("Should accept pushed batch, record changes idempotently, and serve patient resource")
     void testPushAndRetrievePatient() throws Exception {
+        // Node must be enrolled before it may push
+        mockMvc.perform(post("/api/v1/nodes/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nodeId\":\"clinic-alpha\",\"publicKey\":\"cHVibGlja2V5\",\"clinicScope\":\"clinic-alpha\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nodeId").value("clinic-alpha"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"));
+
         String patientJson = """
                 {
                     "resourceType": "Patient",

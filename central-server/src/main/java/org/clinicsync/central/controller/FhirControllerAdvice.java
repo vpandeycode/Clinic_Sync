@@ -1,9 +1,11 @@
 package org.clinicsync.central.controller;
 
+import org.clinicsync.common.exception.ClockDriftException;
 import org.clinicsync.common.exception.InvalidFhirException;
 import org.clinicsync.common.exception.OptimisticLockException;
 import org.clinicsync.common.exception.ResourceGoneException;
 import org.clinicsync.common.exception.ResourceNotFoundException;
+import org.clinicsync.common.exception.SyncRejectedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +16,20 @@ import java.util.Map;
 
 @RestControllerAdvice
 public class FhirControllerAdvice {
+
+    @ExceptionHandler(SyncRejectedException.class)
+    public ResponseEntity<Map<String, Object>> handleSyncRejected(SyncRejectedException ex) {
+        return ResponseEntity.status(ex.getHttpStatus())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(createOperationOutcome("error", ex.getReason(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(ClockDriftException.class)
+    public ResponseEntity<Map<String, Object>> handleClockDrift(ClockDriftException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(createOperationOutcome("error", "HLC_DRIFT", ex.getMessage()));
+    }
 
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleNotFound(ResourceNotFoundException ex) {

@@ -11,9 +11,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
+/**
+ * Operational endpoints for the local sync agent: trigger a full push+pull cycle or inspect the
+ * cursors. The agent itself is invoked explicitly (prototype) rather than on a schedule.
+ */
 @RestController
 @RequestMapping("/api/v1/sync")
 public class EdgeSyncController {
+
+    private static final String CENTRAL_PEER = "central";
 
     private final EdgeSyncClient syncClient;
     private final EdgeResourceRepository repository;
@@ -23,18 +29,35 @@ public class EdgeSyncController {
         this.repository = repository;
     }
 
+    /** Full sync cycle: push journalled changes, then pull everything new from central. */
+    @PostMapping("/run")
+    public ResponseEntity<EdgeSyncClient.SyncResult> run() {
+        return ResponseEntity.ok(syncClient.syncOnce());
+    }
+
+    /** Push-only shortcut (used by the walking-skeleton test and debugging). */
     @PostMapping("/push-now")
     public ResponseEntity<SyncAck> pushNow() {
-        SyncAck ack = syncClient.pushPendingChanges();
-        return ResponseEntity.ok(ack);
+        return ResponseEntity.ok(syncClient.pushPendingChanges());
+    }
+
+    /** Pull-only shortcut. */
+    @PostMapping("/pull-now")
+    public ResponseEntity<Map<String, Object>> pullNow() {
+        var page = syncClient.pullOnce();
+        return ResponseEntity.ok(Map.of(
+                "changesReceived", page.changes().size(),
+                "nextGlobalSeq", page.nextGlobalSeq(),
+                "hasMore", page.hasMore()
+        ));
     }
 
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> status() {
-        long lastPushedSeq = repository.getLastPushedSeq("central");
         return ResponseEntity.ok(Map.of(
-                "peer", "central",
-                "lastPushedSeq", lastPushedSeq
+                "peer", CENTRAL_PEER,
+                "lastPushedSeq", repository.getLastPushedSeq(CENTRAL_PEER),
+                "lastPulledGlobalSeq", repository.getLastPulledGlobalSeq(CENTRAL_PEER)
         ));
     }
 }

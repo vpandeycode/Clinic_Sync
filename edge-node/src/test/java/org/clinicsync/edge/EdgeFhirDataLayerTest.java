@@ -41,14 +41,14 @@ class EdgeFhirDataLayerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(initialJson))
                 .andExpect(status().isCreated())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"1-test-edge-node\""))
                 .andExpect(header().string(HttpHeaders.LOCATION, "/fhir/Patient/" + patientId))
                 .andExpect(jsonPath("$.name[0].family").value("O'Connor"));
 
         // 2. Read Patient
         mockMvc.perform(get("/fhir/Patient/" + patientId))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"1-test-edge-node\""))
                 .andExpect(jsonPath("$.gender").value("male"));
 
         // 3. Update Patient with valid If-Match
@@ -63,11 +63,11 @@ class EdgeFhirDataLayerTest {
                 """.formatted(patientId);
 
         mockMvc.perform(put("/fhir/Patient/" + patientId)
-                        .header(HttpHeaders.IF_MATCH, "\"1\"")
+                        .header(HttpHeaders.IF_MATCH, "\"1-test-edge-node\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updatedJson))
                 .andExpect(status().isOk())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"2\""))
+                .andExpect(header().string(HttpHeaders.ETAG, "\"2-test-edge-node\""))
                 .andExpect(jsonPath("$.name[0].given[1]").value("Patrick"));
 
         // 4. Verify History & Update Never Overwrites Old Version
@@ -77,12 +77,12 @@ class EdgeFhirDataLayerTest {
                 .andExpect(jsonPath("$.type").value("history"))
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.entry", hasSize(2)))
-                .andExpect(jsonPath("$.entry[0].response.etag").value("\"1\""))
-                .andExpect(jsonPath("$.entry[1].response.etag").value("\"2\""));
+                .andExpect(jsonPath("$.entry[0].response.etag").value("\"1-test-edge-node\""))
+                .andExpect(jsonPath("$.entry[1].response.etag").value("\"2-test-edge-node\""));
 
         // 5. Test Optimistic Concurrency: Stale If-Match fails with 412
         mockMvc.perform(put("/fhir/Patient/" + patientId)
-                        .header(HttpHeaders.IF_MATCH, "\"1\"")
+                        .header(HttpHeaders.IF_MATCH, "\"1-test-edge-node\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(updatedJson))
                 .andExpect(status().isPreconditionFailed())
@@ -91,7 +91,7 @@ class EdgeFhirDataLayerTest {
         // 6. Test Invalid FHIR Rejection (400 Bad Request)
         String invalidJson = "{ \"resourceType\": \"Patient\", \"name\": \"NotAnArray\" }";
         mockMvc.perform(put("/fhir/Patient/" + patientId)
-                        .header(HttpHeaders.IF_MATCH, "\"2\"")
+                        .header(HttpHeaders.IF_MATCH, "\"2-test-edge-node\"")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(invalidJson))
                 .andExpect(status().isBadRequest())
@@ -99,9 +99,9 @@ class EdgeFhirDataLayerTest {
 
         // 7. Soft Delete (Tombstone)
         mockMvc.perform(delete("/fhir/Patient/" + patientId)
-                        .header(HttpHeaders.IF_MATCH, "\"2\""))
+                        .header(HttpHeaders.IF_MATCH, "\"2-test-edge-node\""))
                 .andExpect(status().isNoContent())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"3\""));
+                .andExpect(header().string(HttpHeaders.ETAG, "\"3-test-edge-node\""));
 
         // 8. Subsequent GET returns 410 Gone
         mockMvc.perform(get("/fhir/Patient/" + patientId))
@@ -136,7 +136,7 @@ class EdgeFhirDataLayerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(obsJson))
                 .andExpect(status().isCreated())
-                .andExpect(header().string(HttpHeaders.ETAG, "\"1\""));
+                .andExpect(header().string(HttpHeaders.ETAG, "\"1-test-edge-node\""));
 
         // Encounter
         String encJson = """

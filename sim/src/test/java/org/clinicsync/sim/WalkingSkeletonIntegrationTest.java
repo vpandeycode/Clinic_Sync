@@ -2,15 +2,17 @@ package org.clinicsync.sim;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.clinicsync.central.CentralServerApplication;
+import org.clinicsync.common.hlc.HybridLogicalClock;
 import org.clinicsync.common.model.SyncAck;
 import org.clinicsync.edge.repository.EdgeResourceRepository;
 import org.clinicsync.edge.service.EdgeSyncClient;
+import org.clinicsync.edge.service.NodeKeyManager;
+import org.clinicsync.edge.transport.GzipClientInterceptor;
 import org.flywaydb.core.Flyway;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -27,9 +29,6 @@ public class WalkingSkeletonIntegrationTest {
 
     @LocalServerPort
     private int centralPort;
-
-    @Autowired
-    private RestClient.Builder restClientBuilder;
 
     private EdgeResourceRepository edgeRepository;
     private EdgeSyncClient edgeSyncClient;
@@ -52,11 +51,15 @@ public class WalkingSkeletonIntegrationTest {
         edgeFlyway.migrate();
 
         JdbcClient edgeJdbcClient = JdbcClient.create(edgeDataSource);
-        edgeRepository = new EdgeResourceRepository(edgeJdbcClient);
+        edgeRepository = new EdgeResourceRepository(edgeJdbcClient, new HybridLogicalClock("clinic-alpha"));
 
         String centralUrl = "http://localhost:" + centralPort;
-        RestClient client = restClientBuilder.build();
-        edgeSyncClient = new EdgeSyncClient(edgeRepository, client, "clinic-alpha", "clinic-alpha", centralUrl);
+        // Same transport the edge node itself uses: gzip-compressed batches in both directions.
+        RestClient client = RestClient.builder()
+                .requestInterceptor(new GzipClientInterceptor())
+                .build();
+        NodeKeyManager keyManager = new NodeKeyManager(edgeJdbcClient, "clinic-alpha");
+        edgeSyncClient = new EdgeSyncClient(edgeRepository, client, keyManager, "clinic-alpha", "clinic-alpha", centralUrl);
         centralRestClient = RestClient.builder().baseUrl(centralUrl).build();
     }
 

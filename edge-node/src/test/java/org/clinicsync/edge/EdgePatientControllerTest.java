@@ -38,7 +38,7 @@ class EdgePatientControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(patientJson))
                 .andExpect(status().isCreated())
-                .andExpect(header().string("ETag", "\"1\""))
+                .andExpect(header().string("ETag", "\"1-test-edge-node\""))
                 .andExpect(header().string("Location", "/fhir/Patient/test-patient-001"))
                 .andExpect(jsonPath("$.id").value("test-patient-001"));
 
