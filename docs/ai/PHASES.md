@@ -3,92 +3,101 @@
 > **Status:** Phase 0 Active  
 > **Last Updated:** 2026-10-27  
 
-Each phase has strict exit criteria. A phase cannot be marked complete until all checkboxes are checked, all verification tests pass, and the user explicitly approves advancing.
+Each phase has strict acceptance criteria. A phase cannot be marked complete until all checkboxes are checked, all verification tests pass, and the phase summary is posted.
 
 ---
 
-### Phase 0: Discovery & Scope (Week 1)
-- [ ] Ask focused discovery questions (skill level, daily hours, critical failure scenarios).
-- [ ] Complete `PROJECT_BRIEF.md` with explicit problem definition, goals, non-goals, user personas.
-- [ ] Draft and refine `SYNC_INVARIANTS.md`.
-- [ ] Identify candidate GSoC study links (OpenMRS Sync 2.0, DHIS2, Apache projects).
-- **Exit Criteria:** `PROJECT_BRIEF.md` and `SYNC_INVARIANTS.md` reviewed and approved by user.
+### Phase 0: Docs and Decisions (Current Phase)
+- [x] Create and align `PROJECT_BRIEF.md` (users, 6 failure scenarios, non-goals, success metrics).
+- [x] Create `ARCHITECTURE.md` (hub-and-spoke topology, module layout, data models, sync protocol, Mermaid diagrams).
+- [x] Create `SYNC_INVARIANTS.md` (all 8 invariants with formal definitions, violation scenarios, and verification strategies).
+- [x] Create `PHASES.md` (concrete roadmap with checkboxes and acceptance criteria).
+- [x] Create `DECISIONS.md` (record ADRs for all 14 fixed decisions plus core assumptions).
+- [x] Create `HANDOFF.md` (current state snapshot and next steps).
+- [x] Create `docs/learning/phase-0.md` (learning concepts, architecture choices, official study references).
+- **Acceptance Criteria:** Files exist, are consistent with prompt specifications, and are committed.
 
 ---
 
-### Phase 1: Architecture & Design (Weeks 1 to 2)
-- [ ] Propose and evaluate Clock Strategy (Lamport vs. Version Vectors vs. Hybrid Logical Clocks).
-- [ ] Propose and evaluate Edge Storage Engine (SQLite with SQLCipher vs Encrypted H2).
-- [ ] Propose and evaluate Sync Topology and Delta Protocol (Push-Pull, Outbox pattern, batching).
-- [ ] Propose and evaluate Merge Strategy & Conflict Review Queue design.
-- [ ] Document Architecture Decision Records (ADRs) in `DECISIONS.md`.
-- [ ] Define FHIR data models, schema, and API contracts.
-- **Exit Criteria:** `ARCHITECTURE.md` and all Phase 1 ADRs approved by user.
+### Phase 1: Foundation and Walking Skeleton
+- [ ] Multi-module parent POM (`common`, `edge-node`, `central-server`, `sim`).
+- [ ] Maven dependency management, Java 21, Spring Boot 3.x, Spotless / Checkstyle formatting.
+- [ ] CI workflow (`.github/workflows/ci.yml`) for automated build and verification.
+- [ ] Docker Compose (`docker-compose.yml`) running central server + PostgreSQL + 2 edge nodes.
+- [ ] Actuator health endpoints on edge and central.
+- [ ] Flyway baseline migrations for schema creation.
+- [ ] Testcontainers harness for PostgreSQL and local embedded test environment.
+- [ ] Naive walking skeleton: A `Patient` resource POSTed to Edge Node A appears on Central Server via push sync.
+- **Acceptance Criteria:** `docker compose up` works, naive Patient flow works end to end, `mvn verify` passes locally and in CI config.
 
 ---
 
-### Phase 2: Foundation (Weeks 2 to 3)
-- [ ] Initialize Maven multi-module structure (`clinic-sync-common`, `clinic-sync-edge`, `clinic-sync-central`, `clinic-sync-sim`).
-- [ ] Configure Java 21, Spring Boot 3.x, code formatting (Spotless / Checkstyle), CI workflow (GitHub Actions).
-- [ ] Setup Docker Compose with PostgreSQL for central server.
-- [ ] Setup local embedded storage harness for edge.
-- [ ] Configure Testcontainers and jqwik test dependencies.
-- [ ] Implement walking skeleton: A basic `Patient` created on Edge reaches Central over sync endpoint.
-- **Exit Criteria:** Walking skeleton runs end-to-end; unit and integration tests pass in local build and CI.
+### Phase 2: FHIR Data Layer
+- [ ] Integrate HAPI FHIR (R4) as a parsing, serialization, and validation library (no HAPI JPA server).
+- [ ] Implement client-generated UUIDv7 generator for resource IDs.
+- [ ] Implement versioned resource store (`resource_version` and `resource_head`) using Spring JDBC (`JdbcClient`) for `Patient`, `Encounter`, `Observation`, and `AllergyIntolerance`.
+- [ ] Implement history endpoint (`GET /{resourceType}/{id}/_history`).
+- [ ] Implement soft-delete / tombstones (`is_tombstone = true`).
+- [ ] Implement optimistic concurrency control via HTTP `If-Match` on version IDs.
+- [ ] Build synthetic FHIR clinical data generator in `sim`.
+- **Acceptance Criteria:** Create, update, read, history, and tombstone-delete work on both edge and central; an update never overwrites an old version; tests cover invalid FHIR rejection and concurrent update handling.
 
 ---
 
-### Phase 3: FHIR Data Layer (Weeks 3 to 4)
-- [ ] Integrate HAPI FHIR core library (R4).
-- [ ] Implement `Patient`, `Encounter`, `Observation`, `AllergyIntolerance` persistence.
-- [ ] Implement immutable resource versioning, history tracking, and tombstone deletion.
-- [ ] Add FHIR validation rules and audit logging (`AuditEvent`).
-- **Exit Criteria:** Versioned FHIR CRUD and `_history` work reliably on both edge and central nodes.
+### Phase 3: Sync Core
+- [ ] Implement Hybrid Logical Clock (HLC) in `common` (physical ms + counter + node id).
+- [ ] Property-based tests for HLC monotonicity and future drift bounds.
+- [ ] Implement Canonical JSON serialization and Ed25519 payload signing helpers in `common`.
+- [ ] Implement edge `change_log` outbox and `sync_state`.
+- [ ] Implement Central sync push endpoint with dense `origin_seq` batching, idempotency checks (`applied_changes`), and contiguous sequence ACKs.
+- [ ] Implement Central sync pull endpoint with `global_seq` cursor and paging.
+- [ ] Implement edge sync client agent with retry logic, exponential backoff, and jitter.
+- [ ] Implement selective sync filtered by clinic scope.
+- [ ] Implement central node registration endpoint.
+- **Acceptance Criteria:** Two edge nodes converge through central under normal and interrupted syncs; Invariants 1 to 4 pass as automated tests.
 
 ---
 
-### Phase 4: Sync Core (Weeks 5 to 7)
-- [ ] Implement chosen distributed clock in `clinic-sync-common` with comprehensive property tests.
-- [ ] Implement Edge Outbox / Change Journal tracking resource changes.
-- [ ] Implement push-then-pull delta synchronization protocol.
-- [ ] Implement batching, idempotency tokens, and resumable sync cursors/high-water marks.
-- [ ] Implement selective sync (clinic-scoped partitioning).
-- **Exit Criteria:** Two-way sync converges under intermittent connectivity; Invariants 1-5 verified with tests.
+### Phase 4: Conflicts and Identity
+- [ ] Implement Version-DAG branching and concurrent head detection (`resource_head.has_conflict = true`).
+- [ ] Implement 3-tier merge rules:
+  - `Observation` & `Encounter`: Immutable, append-only, corrections marked `entered-in-error`.
+  - `AllergyIntolerance`: Set union for active; removals/refutations route to review.
+  - `Patient` Demographics: Field-level LWW by HLC; identifiers merge as a set.
+  - Clinically meaningful conflicts: Open a `conflict_case`.
+- [ ] Implement Admin API to list and resolve conflict cases.
+- [ ] Implement patient duplicate detection: Blocking (DOB + phonetic soundex) + Scoring (Jaro-Winkler).
+- [ ] Implement patient merge and unmerge via `Patient.link` (fully reversible).
+- **Acceptance Criteria:** Every merge rule has tests including concurrent edits from two clinics; clinically meaningful conflicts always open a case; a merge can be undone (Invariants 5, 6, 8).
 
 ---
 
-### Phase 5: Conflicts & Identity (Weeks 8 to 9)
-- [ ] Implement field-level merge strategies (e.g., Demographics LWW with audit; Allergies safe union).
-- [ ] Implement human-in-the-loop Conflict Review Queue for conflicting clinical edits.
-- [ ] Implement duplicate patient detection (probabilistic or deterministic identifier matching).
-- [ ] Implement reversible patient record merge (`Patient/$merge` and unmerge capabilities).
-- **Exit Criteria:** Conflict scenarios resolved per documented rules; merges fully reversible; Invariants 6 and 8 verified.
+### Phase 5: Security and Consent
+- [ ] Implement encrypted H2 database at rest on edge using `CIPHER=AES` with key from environment variable/file.
+- [ ] Implement Ed25519 batch signing and verification with node key registry.
+- [ ] Implement edge node revocation mechanism in central `node_registry`.
+- [ ] Configure TLS for local development.
+- [ ] Implement Spring Security roles: `ROLE_CLINICIAN`, `ROLE_CLINIC_ADMIN`, `ROLE_CENTRAL_ADMIN`.
+- [ ] Implement FHIR `Consent` enforcement in sync scope filtering and read operations.
+- [ ] Implement `AuditEvent` logging for reads, writes, merges, and conflict resolutions.
+- [ ] Document STRIDE-style threat model in `docs/ai/THREAT_MODEL.md` including physical lost-device limitations.
+- **Acceptance Criteria:** Tampered, unsigned, and revoked-node batches are rejected; unauthorized access is denied; audit trail covers writes, merges, and resolutions (Invariant 7).
 
 ---
 
-### Phase 6: Security & Consent (Week 10)
-- [ ] Implement edge database encryption at rest.
-- [ ] Implement TLS communication with mutual authentication or signed sync payloads (HMAC/Ed25519).
-- [ ] Implement basic role-based access control (Clinician vs Admin).
-- [ ] Integrate FHIR `Consent` enforcement and comprehensive `AuditEvent` generation.
-- [ ] Document lost/stolen edge device security posture and threat model.
-- **Exit Criteria:** Threat model documented; security and encryption tests pass; Invariant 7 verified.
+### Phase 6: Chaos and Verification
+- [ ] Build in-process fault-injecting transport simulator in `sim` (network partitions, mid-sync disconnects, dropped/reordered packets, clock skew).
+- [ ] Simulate N clinics operating concurrently with randomized reads, writes, and partitions.
+- [ ] jqwik property-based tests verifying all 8 invariants across at least 1,000 randomized execution runs.
+- [ ] Benchmark throughput, sync latency, and byte payload sizes; record in `docs/ai/BENCHMARKS.md`.
+- **Acceptance Criteria:** All 8 invariants hold across at least 1,000 randomized runs; benchmark results recorded.
 
 ---
 
-### Phase 7: Chaos & Verification (Week 11)
-- [ ] Build simulation harness in `clinic-sync-sim` (network partitions, latency, dropped packets, mid-sync disconnects).
-- [ ] Simulate extreme clock skew (past, future, drifting edge clocks).
-- [ ] Run jqwik property-based tests verifying convergence across randomized concurrent edits.
-- [ ] Collect performance metrics (sync latency, payload sizes, database overhead).
-- **Exit Criteria:** Zero data loss and complete convergence proven under chaos test suite; Invariants 1-8 verified.
-
----
-
-### Phase 8: Documentation & Release (Week 12)
-- [ ] Write comprehensive top-level `README.md` (overview, quickstart, architecture, demo, limitations).
-- [ ] Polish all technical documentation in `/docs/`.
-- [ ] Create interactive demo script / walkthrough video.
-- [ ] Document retrospective in `DECISIONS.md` and outline future backlog (P2P sync, mobile edge client).
-- [ ] Tag v1.0.0 release.
-- **Exit Criteria:** Clean repo state; external developer can run the demo from `README.md` in under 10 minutes.
+### Phase 7: Documentation and Release
+- [ ] Write top-level `README.md` (problem statement, architecture diagram, quickstart, limitations, scope notes).
+- [ ] Write scripted demo (`scripts/demo.sh` or documented steps): clinic goes offline, two clinics edit same patient, reconnect, conflict review, merge undo.
+- [ ] Polish architecture documentation and add LICENSE.
+- [ ] Write project retrospective in `docs/ai/DECISIONS.md` and prioritized future `BACKLOG.md`.
+- [ ] Tag `v0.1.0`.
+- **Acceptance Criteria:** A stranger can run the demo from the `README.md` alone.
